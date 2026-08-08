@@ -1,0 +1,59 @@
+URL Shortener — Write-up
+
+  ---
+  1. What I asked the AI to do, and what I decided myself
+
+  I started with a partial implementation: Base62.java, a plain URLMapping class backed by two HashMaps, and a Main.java that
+   called those methods directly with no HTTP layer. The AI identified what was broken or missing — no HTTP server, alias
+  field wired but never used, decode() returning a string instead of null, no URL validation, no persistence, and a
+  ShortenResponse DTO with no constructors.
+
+  I asked the AI to fix those gaps "in a simple way," and it produced a working service using Java's built-in
+  com.sun.net.httpserver. I then asked to use a proper library. The AI presented Spring Boot and Javalin as options — I chose
+   Spring Boot and Maven. It then suggested H2, PostgreSQL, or MySQL for the database — I chose H2. These were my decisions;
+  the AI laid out the trade-offs and implemented whichever I picked. I also spotted that the HTTP method-checking block was
+  repetitive and asked the AI to simplify it, which led to the requireMethod helper.
+
+  ---
+  2. Where I overrode or corrected the AI
+
+  The biggest override was rejecting the flat-file persistence (url_mappings.tsv) the AI initially built. It technically
+  satisfied "persist the mappings," but I knew a database was the expected answer for this kind of assignment and pushed for
+  H2 instead. That change also cleaned up the counter-recovery logic, which had been fragile — reading the max Base62-decoded
+   value from the file on startup to avoid reusing codes after a restart. The database auto-increment ID replaced all of that
+   with a single @GeneratedValue annotation.
+
+  I also discarded the first Main.java rewrite entirely once we moved to Spring Boot. The manual JSON parsing
+  (extractJsonField) and response-building code became dead weight — Jackson handles all of that automatically with
+  @RequestBody and ResponseEntity.
+
+  ---
+  3. The two or three biggest trade-offs
+
+  Idempotent duplicate URLs vs. always creating a new code. I chose idempotent: the same URL always returns the same short
+  code. The alternative — creating a new code each time — gives the caller more flexibility (different tracking per campaign,
+   for example) but makes the longToShort reverse map meaningless and pollutes the database. Idempotency is the safer
+  default; callers who need separate codes can use custom aliases.
+
+  H2 vs. PostgreSQL. H2 requires zero setup and fits an assignment submission. The trade-off is that H2's file-mode database
+  is not suitable for production: it doesn't support multiple JVM processes connecting to the same file, has limited tuning
+  options, and is largely unknown outside Java development. PostgreSQL would be the right call for anything real, but it
+  would require a running server or Docker, adding friction for reviewers trying to run the project.
+
+  Short-code generation: DB auto-increment ID encoded in Base62 vs. a random/hash-based approach. Using the auto-increment ID
+   keeps codes short and sequential but reveals traffic volume (someone can infer how many URLs have been shortened by
+  watching the codes grow). A random Base62 string or a hash of the URL would hide that, at the cost of needing a
+  collision-check loop or accepting occasional retries. For this scope, the sequential approach is simpler and provably
+  collision-free.
+
+  ---
+  4. What's missing, or what I'd do with another day
+
+  The service has no rate limiting — a single client can flood the POST /shorten endpoint. I'd add a simple IP-based
+  throttle. There is also no link expiry: once a code is stored it lives forever, which would become a storage problem at
+  scale. A created_at timestamp column and a background cleanup job would fix that.
+
+  The short URL returned always hardcodes http://localhost:8080, which breaks the moment the service is deployed anywhere
+  else. I'd move the base URL to application.properties. Finally, there are no click analytics — no record of when or how
+  often a short code is followed. A separate clicks table with a timestamp per redirect would make the service genuinely
+  useful and would only take a few extra lines with Spring Data.
