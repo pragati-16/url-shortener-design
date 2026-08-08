@@ -18,6 +18,13 @@ public class UrlMappingEntity {
 
     protected UrlMappingEntity() {} // required by JPA
 
+    // Used by tests to create entities with a known ID
+    UrlMappingEntity(Long id, String shortCode, String originalUrl) {
+        this.id = id;
+        this.shortCode = shortCode;
+        this.originalUrl = originalUrl;
+    }
+
     public UrlMappingEntity(String shortCode, String originalUrl) {
         this.shortCode = shortCode;
         this.originalUrl = originalUrl;
